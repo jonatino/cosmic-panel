@@ -795,7 +795,7 @@ impl PanelSpace {
         };
 
         let intellihide =
-            matches!(self.config.autohide, AutoHide::OnOverlap) && false;
+            matches!(self.config.autohide, AutoHide::OnOverlap) && self.overlap_notify.is_some();
         let intellihide_no_toplevel = intellihide && !self.has_toplevel_overlap();
 
         // Panel should remain visible until workspaces overview is no longer
@@ -1206,7 +1206,7 @@ impl PanelSpace {
         self.is_dirty = true;
         self.needs_layout = true;
         self.additional_gap = gap;
-        let intellihide = self.overlap_notify.is_some() && false;
+        let intellihide = self.overlap_notify.is_some();
         if ((intellihide && !self.has_toplevel_overlap())
             || matches!(self.visibility, Visibility::Visible))
             && !matches!(
