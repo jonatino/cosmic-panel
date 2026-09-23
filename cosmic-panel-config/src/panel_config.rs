@@ -315,7 +315,7 @@ pub enum AutoHide {
     /// Panel never hides
     #[default]
     Never,
-    /// Panel hides until the pointer hovers over it
+    /// Panel hides on window overlap (intellihide)
     OnOverlap,
     /// Panel always hides
     Always,

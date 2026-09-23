@@ -75,7 +75,7 @@ use wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport;
 use wayland_protocols::xdg::shell::client::xdg_positioner::ConstraintAdjustment;
 use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_shell_v1;
 
-use cosmic_panel_config::{CosmicPanelBackground, CosmicPanelConfig, PanelAnchor};
+use cosmic_panel_config::{AutoHide, CosmicPanelBackground, CosmicPanelConfig, PanelAnchor};
 
 use crate::PanelCalloopMsg;
 use crate::iced::elements::CosmicMappedInternal;
@@ -756,8 +756,12 @@ impl PanelSpace {
         }
     }
 
-    fn show_delay_done(&self) -> bool {
+    fn show_delay_done(&self, intellihide: bool) -> bool {
         let mut start_show_instant_opt = self.start_show_instant.borrow_mut();
+        if intellihide {
+            *start_show_instant_opt = None;
+            return true;
+        }
         let unhide_delay = self.config.autohide_behavior.unhide_delay;
         if let Some(start_show_instant) = *start_show_instant_opt {
             let start_show_duration =
@@ -790,6 +794,10 @@ impl PanelSpace {
             return;
         };
 
+        let intellihide =
+            matches!(self.config.autohide, AutoHide::OnOverlap) && false;
+        let intellihide_no_toplevel = intellihide && !self.has_toplevel_overlap();
+
         // Panel should remain visible until workspaces overview is no longer
         // shown
         if self.shared.workspaces_shown.get() {
@@ -813,7 +821,7 @@ impl PanelSpace {
             };
 
             c_hovered_surface.iter().fold(
-                if self.animate_state.is_some() {
+                if self.animate_state.is_some() || intellihide_no_toplevel {
                     FocusStatus::Focused
                 } else {
                     FocusStatus::LastFocused(self.start_instant)
@@ -853,8 +861,8 @@ impl PanelSpace {
 
         match self.visibility {
             Visibility::Hidden => {
-                if matches!(cur_hover, FocusStatus::Focused) {
-                    if self.show_delay_done() {
+                if matches!(cur_hover, FocusStatus::Focused) || intellihide_no_toplevel {
+                    if self.show_delay_done(intellihide_no_toplevel) {
                         self.transitioning = true;
                         // start transition to visible
                         let margin = match self.config.anchor() {
@@ -889,7 +897,9 @@ impl PanelSpace {
                         None => return,
                     };
 
-                    if duration_since_last_focus > self.config.get_hide_wait() {
+                    if duration_since_last_focus > self.config.get_hide_wait()
+                        && (!intellihide || self.has_toplevel_overlap())
+                    {
                         self.transitioning = true;
                         self.is_dirty = true;
                         self.needs_layout = true;
@@ -921,7 +931,9 @@ impl PanelSpace {
                 self.is_dirty = true;
                 self.needs_layout = true;
 
-                if matches!(cur_hover, FocusStatus::Focused) {
+                if matches!(cur_hover, FocusStatus::Focused)
+                    || (intellihide && !self.has_toplevel_overlap())
+                {
                     // start transition to visible
                     self.visibility = Visibility::TransitionToVisible {
                         last_instant: now,
@@ -982,7 +994,9 @@ impl PanelSpace {
                 self.is_dirty = true;
                 self.needs_layout = true;
 
-                if matches!(cur_hover, FocusStatus::LastFocused(_)) {
+                if matches!(cur_hover, FocusStatus::LastFocused(_))
+                    && (!intellihide || !self.has_toplevel_overlap())
+                {
                     // start transition to hide
                     self.close_popups(|_| false);
                     self.visibility = Visibility::TransitionToHidden {
@@ -1192,7 +1206,9 @@ impl PanelSpace {
         self.is_dirty = true;
         self.needs_layout = true;
         self.additional_gap = gap;
-        if matches!(self.visibility, Visibility::Visible)
+        let intellihide = self.overlap_notify.is_some() && false;
+        if ((intellihide && !self.has_toplevel_overlap())
+            || matches!(self.visibility, Visibility::Visible))
             && !matches!(
                 self.space_event.as_ref().get(),
                 Some(SpaceEvent::WaitConfigure { first, .. }) if first
